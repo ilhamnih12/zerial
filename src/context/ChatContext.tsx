@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { generateUserId, generateUsername } from "@/lib/utils/chatUtils";
 
@@ -37,6 +36,13 @@ interface ChatContextType {
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
+// Storage keys
+const STORAGE_KEYS = {
+  MESSAGES: 'chat_messages',
+  USERS: 'chat_users',
+  CURRENT_USER: 'chat_current_user'
+};
+
 // Default rooms
 const DEFAULT_ROOMS: Room[] = [
   { id: "general", name: "General", description: "General chat for everyone" },
@@ -51,78 +57,64 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentRoomId, setCurrentRoomId] = useState<string>("general");
   const [rooms] = useState<Room[]>(DEFAULT_ROOMS);
 
-  // Initialize current user
+  // Load data from localStorage on initial mount
   useEffect(() => {
-    const userId = generateUserId();
-    const username = generateUsername();
-    
-    // Create current user
-    const user: User = {
-      id: userId,
-      username,
-      isOnline: true,
-      lastActive: Date.now(),
-    };
-    
-    setCurrentUser(user);
-    
-    // Add some mock users
-    const mockUsers: User[] = [
-      { id: "user1", username: "TechGuru", isOnline: true, lastActive: Date.now() },
-      { id: "user2", username: "CodingWizard", isOnline: true, lastActive: Date.now() },
-      { id: "user3", username: "WebDeveloper", isOnline: false, lastActive: Date.now() - 3600000 },
-      { id: "user4", username: "DesignMaster", isOnline: true, lastActive: Date.now() },
-      { id: "user5", username: "DataScientist", isOnline: false, lastActive: Date.now() - 7200000 },
-    ];
-    
-    setUsers([...mockUsers, user]);
-    
-    // Add some mock messages
-    const mockMessages: Message[] = [
-      {
-        id: "msg1",
-        text: "Hello everyone! Welcome to the chat app.",
-        userId: "user1",
-        username: "TechGuru",
-        timestamp: Date.now() - 86400000,
-        roomId: "general",
-      },
-      {
-        id: "msg2",
-        text: "Thanks for creating this! It looks great.",
-        userId: "user2",
-        username: "CodingWizard",
-        timestamp: Date.now() - 43200000,
-        roomId: "general",
-      },
-      {
-        id: "msg3",
-        text: "I'm loving the real-time features and the design is sleek!",
-        userId: "user4",
-        username: "DesignMaster",
-        timestamp: Date.now() - 3600000,
-        roomId: "general",
-      },
-      {
-        id: "msg4",
-        text: "The automatic IDs and usernames are a nice touch.",
-        userId: "user1",
-        username: "TechGuru",
-        timestamp: Date.now() - 1800000,
-        roomId: "general",
-      },
-      {
-        id: "msg5",
-        text: "Let me know if anyone needs help with the chat features.",
-        userId: "user2",
-        username: "CodingWizard",
-        timestamp: Date.now() - 900000,
-        roomId: "general",
-      },
-    ];
-    
-    setMessages(mockMessages);
+    const storedMessages = localStorage.getItem(STORAGE_KEYS.MESSAGES);
+    const storedUsers = localStorage.getItem(STORAGE_KEYS.USERS);
+    const storedCurrentUser = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
 
+    if (storedMessages) {
+      setMessages(JSON.parse(storedMessages));
+    }
+
+    if (storedUsers) {
+      setUsers(JSON.parse(storedUsers));
+    }
+
+    // Initialize current user if not exists
+    if (storedCurrentUser) {
+      setCurrentUser(JSON.parse(storedCurrentUser));
+    } else {
+      const userId = generateUserId();
+      const username = generateUsername();
+      
+      const newUser: User = {
+        id: userId,
+        username,
+        isOnline: true,
+        lastActive: Date.now(),
+      };
+      
+      setCurrentUser(newUser);
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(newUser));
+    }
+  }, []);
+
+  // Save messages to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(messages));
+  }, [messages]);
+
+  // Save users to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+  }, [users]);
+
+  // Listen for storage events from other tabs/windows
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === STORAGE_KEYS.MESSAGES) {
+        const newMessages = JSON.parse(event.newValue || '[]');
+        setMessages(newMessages);
+      }
+      if (event.key === STORAGE_KEYS.USERS) {
+        const newUsers = JSON.parse(event.newValue || '[]');
+        setUsers(newUsers);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   // Send a new message
@@ -130,7 +122,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentUser || !text.trim()) return;
     
     const newMessage: Message = {
-      id: `msg_${Date.now()}`,
+      id: `msg_${Date.now()}_${currentUser.id}`,
       text,
       userId: currentUser.id,
       username: currentUser.username,
@@ -138,7 +130,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       roomId: currentRoomId,
     };
     
-    setMessages((prev) => [...prev, newMessage]);
+    setMessages(prev => [...prev, newMessage]);
+    // Messages will be automatically saved to localStorage via useEffect
   }, [currentUser, currentRoomId]);
 
   // Join a room
@@ -152,12 +145,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     const updatedUser = { ...currentUser, username };
     setCurrentUser(updatedUser);
+    localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(updatedUser));
     
-    setUsers(prevUsers => 
-      prevUsers.map(user => 
+    setUsers(prevUsers => {
+      const newUsers = prevUsers.map(user => 
         user.id === currentUser.id ? updatedUser : user
-      )
-    );
+      );
+      return newUsers;
+    });
   }, [currentUser]);
 
   return (
